@@ -56,8 +56,8 @@ public class MainMenu : MonoBehaviour
     }
 
     public void Play()
-    {
-        if (!isLoading) StartCoroutine(LoadGame());
+    {   
+        if (!isLoading) StartCoroutine(LoadGame()); 
     }
 
     public void OpenOptions()
