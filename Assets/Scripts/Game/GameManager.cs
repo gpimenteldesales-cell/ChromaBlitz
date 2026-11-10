@@ -1,3 +1,4 @@
+
 using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
@@ -100,10 +101,7 @@ public class GameManager : MonoBehaviour
         rodada++;
         roundActive = true;
 
-        // IMPORTANTE:
-        // Não limpamos currentBlocks aqui.
-        // O Player pode continuar sobre o mesmo bloco entre rodadas.
-
+        // Sorteia a cor que será procurada.
         if (Camera.main == null)
         {
             Debug.LogError(
@@ -152,6 +150,7 @@ public class GameManager : MonoBehaviour
         if (!roundActive)
             yield break;
 
+        // Verifica a posição do jogador somente quando o tempo acaba.
         bool acertou =
             currentBlock != null &&
             ColorUtils.CoresIguais(
@@ -161,11 +160,25 @@ public class GameManager : MonoBehaviour
 
         if (acertou)
         {
-            StartCoroutine(VitoriaRoutine());
+            // Revelação sonora somente após o fim da rodada.
+            if (AudioManager.Instance != null)
+            {
+                AudioManager.Instance.PlayCorrect();
+
+                // A nota correspondente à cor pode ser tocada aqui
+                // quando tivermos a associação entre cor e índice.
+            }
+
+            yield return StartCoroutine(VitoriaRoutine());
         }
         else
         {
-            StartCoroutine(DerrotaRoutine());
+            if (AudioManager.Instance != null)
+            {
+                AudioManager.Instance.PlayError();
+            }
+
+            yield return StartCoroutine(DerrotaRoutine());
         }
     }
 
@@ -175,7 +188,7 @@ public class GameManager : MonoBehaviour
 
     public void OnPlayerEnteredBlock(GridBlock block)
     {
-        if (block == null)
+        if (block == null || !roundActive)
             return;
 
         if (!currentBlocks.Contains(block))
@@ -189,6 +202,10 @@ public class GameManager : MonoBehaviour
             $"Entrou em {block.name} | " +
             $"Cor: {block.BlockColor}"
         );
+
+        // IMPORTANTE:
+        // Nenhum áudio é reproduzido aqui.
+        // O jogador precisa descobrir a cor visualmente.
     }
 
     // =========================================================
@@ -224,7 +241,7 @@ public class GameManager : MonoBehaviour
     {
         roundActive = false;
 
-        yield return PiscarBlocos(Color.green);
+        yield return StartCoroutine(PiscarBlocos(Color.green));
 
         foreach (GridBlock block in blocks)
         {
@@ -233,6 +250,7 @@ public class GameManager : MonoBehaviour
 
         onRoundWon?.Invoke();
 
+        // Aumenta a dificuldade.
         tempoAtual = Mathf.Max(
             tempoMinimo,
             tempoAtual * reducaoPorRodada
@@ -319,6 +337,9 @@ public class GameManager : MonoBehaviour
             StopCoroutine(timerCoroutine);
             timerCoroutine = null;
         }
+
+        currentBlocks.Clear();
+        currentBlock = null;
 
         tempoAtual = tempoInicial;
         rodada = 0;
