@@ -316,7 +316,7 @@ MonoBehaviour:
   velocidadeRotacao: 20
   intervaloTroca: 1
   minBrightness: 0.3
-  transicaoSuave: 0
+  transicaoSuave: 1
   duracaoTransicao: 0.35
 --- !u!1 &222658048
 GameObject:
@@ -1693,7 +1693,7 @@ Camera:
   m_Enabled: 1
   serializedVersion: 2
   m_ClearFlags: 2
-  m_BackGroundColor: {r: 0, g: 0, b: 0, a: 0}
+  m_BackGroundColor: {r: 0.07169801, g: 0.07169801, b: 0.07169801, a: 0}
   m_projectionMatrixMode: 1
   m_GateFitMode: 2
   m_FOVAxisMode: 0
@@ -5834,8 +5834,8 @@ MeshFilter:
 SceneRoots:
   m_ObjectHideFlags: 0
   m_Roots:
-  - {fileID: 896569988}
   - {fileID: 707880417}
+  - {fileID: 896569988}
   - {fileID: 1201783070}
   - {fileID: 304359553}
   - {fileID: 205201196}
