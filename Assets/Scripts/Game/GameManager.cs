@@ -1,4 +1,3 @@
-
 using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
@@ -15,6 +14,13 @@ public class GameManager : MonoBehaviour
     [Tooltip("Brilho mínimo das cores sorteadas")]
     [Range(0f, 1f)]
     public float minBrightness = 0.3f;
+
+    [Header("Detecção do player")]
+    [Tooltip("Player usado para descobrir em que bloco ele está. Se vazio, procura pela tag Player.")]
+    public Transform playerTransform;
+
+    [Tooltip("Altura (acima do centro do player) de onde o raio parte para baixo.")]
+    public float alturaRaio = 1f;
 
     [Header("Dificuldade")]
     public float tempoInicial = 3f;
@@ -39,10 +45,10 @@ public class GameManager : MonoBehaviour
 
     private readonly List<GridBlock> blocks = new List<GridBlock>();
 
-    // Blocos atualmente ocupados pelo Player.
+    // Blocos atualmente tocados pelo Player.
+    // Atualizado pelos triggers SEMPRE (inclusive entre rodadas): o trigger só
+    // dispara ao ENTRAR, então quem ficou parado num bloco não pode ser "esquecido".
     private readonly List<GridBlock> currentBlocks = new List<GridBlock>();
-
-    private GridBlock currentBlock;
 
     private Color targetColor;
     private float tempoAtual;
@@ -93,6 +99,23 @@ public class GameManager : MonoBehaviour
 
     private void Start()
     {
+        if (playerTransform == null)
+        {
+            GameObject p = GameObject.FindWithTag("Player");
+
+            if (p != null)
+            {
+                playerTransform = p.transform;
+            }
+            else
+            {
+                Debug.LogWarning(
+                    "GameManager: Player não encontrado (tag Player). " +
+                    "Usando apenas os triggers para detectar o bloco."
+                );
+            }
+        }
+
         NovaRodada();
     }
 
@@ -150,13 +173,21 @@ public class GameManager : MonoBehaviour
         if (!roundActive)
             yield break;
 
-        // Verifica a posição do jogador somente quando o tempo acaba.
+        // Verifica o bloco sob o player somente quando o tempo acaba.
+        GridBlock blocoDoPlayer = BlocoSobPlayer();
+
         bool acertou =
-            currentBlock != null &&
+            blocoDoPlayer != null &&
             ColorUtils.CoresIguais(
-                currentBlock.BlockColor,
+                blocoDoPlayer.BlockColor,
                 targetColor
             );
+
+        Debug.Log(
+            $"Fim da rodada {rodada} | " +
+            $"Bloco do player: {(blocoDoPlayer != null ? blocoDoPlayer.name : "nenhum")} | " +
+            $"Acertou: {acertou}"
+        );
 
         if (acertou)
         {
@@ -183,20 +214,89 @@ public class GameManager : MonoBehaviour
     }
 
     // =========================================================
+    // QUAL BLOCO ESTÁ SOB O PLAYER?
+    // =========================================================
+
+    /// <summary>
+    /// Descobre o bloco sob o CENTRO do player.
+    /// 1) Raio para baixo a partir do player (não depende de ter "entrado" no bloco).
+    /// 2) Se o raio não achar nada, usa os blocos registrados pelos triggers
+    ///    (o mais próximo do player; ou o último registrado se não houver referência).
+    /// </summary>
+    private GridBlock BlocoSobPlayer()
+    {
+        if (playerTransform != null)
+        {
+            Vector3 origem =
+                playerTransform.position + Vector3.up * alturaRaio;
+
+            RaycastHit[] hits = Physics.RaycastAll(
+                origem,
+                Vector3.down,
+                alturaRaio + 5f,
+                Physics.DefaultRaycastLayers,
+                QueryTriggerInteraction.Collide
+            );
+
+            GridBlock melhor = null;
+            float menorDistancia = float.MaxValue;
+
+            for (int i = 0; i < hits.Length; i++)
+            {
+                GridBlock gb =
+                    hits[i].collider.GetComponentInParent<GridBlock>();
+
+                if (gb != null && hits[i].distance < menorDistancia)
+                {
+                    menorDistancia = hits[i].distance;
+                    melhor = gb;
+                }
+            }
+
+            if (melhor != null)
+                return melhor;
+        }
+
+        // Fallback: blocos registrados pelos triggers.
+        if (currentBlocks.Count == 0)
+            return null;
+
+        if (playerTransform == null)
+            return currentBlocks[currentBlocks.Count - 1];
+
+        GridBlock maisPerto = null;
+        float menorSqr = float.MaxValue;
+
+        foreach (GridBlock b in currentBlocks)
+        {
+            Vector3 d = b.transform.position - playerTransform.position;
+            d.y = 0f;
+
+            if (d.sqrMagnitude < menorSqr)
+            {
+                menorSqr = d.sqrMagnitude;
+                maisPerto = b;
+            }
+        }
+
+        return maisPerto;
+    }
+
+    // =========================================================
     // PLAYER ENTROU
     // =========================================================
 
     public void OnPlayerEnteredBlock(GridBlock block)
     {
-        if (block == null || !roundActive)
+        if (block == null)
             return;
 
+        // Registra SEMPRE, mesmo fora de rodada (pausa pós-vitória, game over...).
+        // Quem avalia o resultado é o fim do timer, não esta função.
         if (!currentBlocks.Contains(block))
         {
             currentBlocks.Add(block);
         }
-
-        currentBlock = block;
 
         Debug.Log(
             $"Entrou em {block.name} | " +
@@ -218,19 +318,6 @@ public class GameManager : MonoBehaviour
             return;
 
         currentBlocks.Remove(block);
-
-        if (currentBlock == block)
-        {
-            if (currentBlocks.Count > 0)
-            {
-                currentBlock =
-                    currentBlocks[currentBlocks.Count - 1];
-            }
-            else
-            {
-                currentBlock = null;
-            }
-        }
     }
 
     // =========================================================
@@ -338,8 +425,9 @@ public class GameManager : MonoBehaviour
             timerCoroutine = null;
         }
 
-        currentBlocks.Clear();
-        currentBlock = null;
+        // currentBlocks NÃO é limpo de propósito: ele reflete a posição física do
+        // player (triggers). Limpar faria o jogo esquecer quem continua parado
+        // em cima de um bloco, pois o trigger não dispara de novo.
 
         tempoAtual = tempoInicial;
         rodada = 0;

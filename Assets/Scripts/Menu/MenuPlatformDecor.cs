@@ -2,10 +2,14 @@ using System.Collections.Generic;
 using UnityEngine;
 
 /// <summary>
-/// Efeito decorativo do menu principal, sincronizado com a música:
-/// - Gira o pivot em sincronia com o loop da música.
-/// - Troca as cores dos blocos a cada N batidas (0,8 s a 75 BPM).
-/// - Se não houver AudioManager, usa o timer interno (intervaloTroca).
+/// Efeito decorativo do menu principal:
+/// - Gira o pivot com um relógio próprio (1 volta por loop da música), sem depender do áudio.
+///   No WebGL o navegador só libera o áudio após o primeiro clique/tecla, e o relógio do
+///   AudioSource pode ficar parado mesmo com isPlaying = true.
+/// - Troca as cores dos blocos a cada N batidas (0,8 s a 75 BPM) quando a música está
+///   realmente avançando.
+/// - Se não houver AudioManager, ou se o áudio estiver parado/travado, usa o timer
+///   interno (intervaloTroca).
 /// </summary>
 public class MenuPlatformDecor : MonoBehaviour
 {
@@ -14,14 +18,14 @@ public class MenuPlatformDecor : MonoBehaviour
     public Transform rotationPivot;
 
     [Header("Rotação")]
-    [Tooltip("Voltas completas por loop da música (76,8 s). Usado quando a música está tocando.")]
+    [Tooltip("Duração de um loop da música, em segundos (96 batidas a 75 BPM = 76,8 s).")]
+    public float duracaoLoop = 76.8f;
+    [Tooltip("Voltas completas por loop da música.")]
     public float voltasPorLoop = 1f;
-    [Tooltip("Graus por segundo. Usado só se não houver AudioManager.")]
-    public float velocidadeRotacao = 20f;
 
     [Header("Cores")]
     [Min(1)] public int batidasPorTroca = 1;
-    [Tooltip("Intervalo de reserva (sem AudioManager), em segundos.")]
+    [Tooltip("Intervalo de reserva (música parada ou sem AudioManager), em segundos.")]
     public float intervaloTroca = 0.8f;
     [Range(0f, 1f)] public float minBrightness = 0.3f;
     public bool transicaoSuave = false;
@@ -32,10 +36,16 @@ public class MenuPlatformDecor : MonoBehaviour
     private Color[] coresDestino;
 
     private Quaternion rotacaoBase;
+    private float tempoMenu;
     private float timerTroca;
     private float timerTransicao;
     private bool transicionando;
     private bool inscrito;
+
+    // Detecção de áudio travado (WebGL antes do primeiro clique).
+    private bool audioAvancando;
+    private float ultimoNormalizado = -1f;
+    private float tempoSemAvanco;
 
     private void Awake()
     {
@@ -82,6 +92,10 @@ public class MenuPlatformDecor : MonoBehaviour
 
     private void AoBater(int beat)
     {
+        // Se o áudio está travado, quem troca as cores é o timer interno.
+        if (!audioAvancando)
+            return;
+
         if (beat % Mathf.Max(1, batidasPorTroca) == 0)
             SortearNovasCores();
     }
@@ -96,17 +110,21 @@ public class MenuPlatformDecor : MonoBehaviour
             inscrito = true;
         }
 
-        if (am != null && am.IsPlaying)
+        // 1) Rotação: relógio próprio. Nunca depende do áudio.
+        tempoMenu += Time.deltaTime;
+        float fase = Mathf.Repeat(tempoMenu / Mathf.Max(0.01f, duracaoLoop), 1f);
+        float angulo = fase * 360f * voltasPorLoop;
+        rotationPivot.localRotation = rotacaoBase * Quaternion.AngleAxis(angulo, Vector3.up);
+
+        // 2) Cores: pela batida quando o áudio realmente avança; senão, pelo timer.
+        audioAvancando = AudioRealmenteAvancando(am);
+
+        if (audioAvancando)
         {
-            // rotação e cores seguem a música
-            float angulo = am.Normalized * 360f * voltasPorLoop;
-            rotationPivot.localRotation = rotacaoBase * Quaternion.AngleAxis(angulo, Vector3.up);
+            timerTroca = 0f;
         }
         else
         {
-            // reserva: comportamento antigo, com timer
-            rotationPivot.Rotate(Vector3.up, velocidadeRotacao * Time.deltaTime, Space.Self);
-
             timerTroca += Time.deltaTime;
             if (timerTroca >= intervaloTroca)
             {
@@ -117,6 +135,33 @@ public class MenuPlatformDecor : MonoBehaviour
 
         if (transicionando)
             AtualizarTransicao();
+    }
+
+    /// <summary>
+    /// True só se a música está tocando E o relógio dela está de fato andando.
+    /// Cobre o caso do WebGL: isPlaying = true, mas o tempo do áudio parado
+    /// até o jogador interagir com a página.
+    /// </summary>
+    private bool AudioRealmenteAvancando(AudioManager am)
+    {
+        if (am == null || !am.IsPlaying)
+        {
+            ultimoNormalizado = -1f;
+            tempoSemAvanco = 0f;
+            return false;
+        }
+
+        float n = am.Normalized;
+
+        if (Mathf.Abs(n - ultimoNormalizado) > 0.00001f)
+        {
+            ultimoNormalizado = n;
+            tempoSemAvanco = 0f;
+            return true;
+        }
+
+        tempoSemAvanco += Time.unscaledDeltaTime;
+        return tempoSemAvanco < 0.5f;
     }
 
     private void SortearNovasCores()
