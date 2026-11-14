@@ -29,14 +29,44 @@ public class GameManager : MonoBehaviour
     [Range(0.5f, 0.99f)]
     public float reducaoPorRodada = 0.95f;
 
+    [Header("Entrada calma (sem susto)")]
+    [Tooltip("Preparo antes da primeira rodada, em segundos. O jogador já pode andar.")]
+    public float tempoPreparo = 3f;
+
+    [Tooltip("Preparo depois do TryAgain, em segundos.")]
+    public float tempoPreparoRetry = 1.5f;
+
+    [Tooltip("Cor do fundo do jogo (neutra e escura). A cor-alvo NÃO usa mais o fundo: ela aparece no HUD.")]
+    public Color corFundo = new Color(0.10f, 0.10f, 0.12f);
+
+    [Tooltip("Tempo para o fundo mudar de cor ao entrar no preparo, em segundos.")]
+    public float duracaoTransicaoFundo = 0.25f;
+
     [Header("Feedback visual")]
+    [Tooltip("Cor dos blocos entre as rodadas. Dica: um cinza suave incomoda menos que branco puro.")]
     public Color corPadraoBlocos = Color.white;
 
-    public int quantidadePiscadas = 3;
-    public float intervaloPiscada = 0.15f;
+    public Color corVitoria = new Color(0.24f, 0.86f, 0.52f);
+
+    [Tooltip("Duração do pulso suave de vitória, em segundos.")]
+    public float duracaoPulsoVitoria = 0.5f;
+
+    [Range(0f, 1f)]
+    [Tooltip("Quanto o pulso chega perto da cor de vitória (0 = nada, 1 = cor cheia).")]
+    public float forcaPulsoVitoria = 0.55f;
 
     [Tooltip("Pausa depois da vitória antes da próxima rodada")]
     public float pausaAposVitoria = 0.5f;
+
+    [Header("Revelação da derrota")]
+    [Tooltip("Cor para onde os blocos errados vão 'apagando'.")]
+    public Color corBlocosApagados = new Color(0.25f, 0.25f, 0.30f);
+
+    [Tooltip("Tempo do apagar suave dos blocos errados, em segundos.")]
+    public float duracaoRevelacao = 0.6f;
+
+    [Tooltip("Espera antes de mostrar o painel de Game Over, para o jogador ver o bloco certo.")]
+    public float atrasoGameOver = 0.9f;
 
     [Header("Eventos")]
     public UnityEvent onRoundWon;
@@ -50,14 +80,75 @@ public class GameManager : MonoBehaviour
     // dispara ao ENTRAR, então quem ficou parado num bloco não pode ser "esquecido".
     private readonly List<GridBlock> currentBlocks = new List<GridBlock>();
 
+    private GridBlock blocoCorreto;
+
     private Color targetColor;
     private float tempoAtual;
 
+    private Coroutine preparoCoroutine;
     private Coroutine timerCoroutine;
-    private Coroutine loopDerrotaCoroutine;
+    private Coroutine derrotaCoroutine;
+    private Coroutine fundoCoroutine;
 
     private bool roundActive;
     private int rodada;
+
+    private float inicioRodada;
+    private int rodadaUid;
+    private bool fimDeJogo;
+
+    private bool emPreparo;
+    private float preparoFim;
+    private float preparoTotal;
+
+    // =========================================================
+    // LEITURA PARA O HUD (somente leitura)
+    // =========================================================
+
+    /// <summary>Número da rodada atual (0 durante o preparo, depois 1, 2, 3...).</summary>
+    public int Rodada => rodada;
+
+    /// <summary>Contador que sobe a cada rodada/preparo e nunca reseta (detecta "algo novo").</summary>
+    public int RodadaUid => rodadaUid;
+
+    public bool RodadaAtiva => roundActive;
+
+    /// <summary>Cor que o jogador precisa encontrar (mostrada no HUD, não no fundo).</summary>
+    public Color CorAlvo => targetColor;
+
+    /// <summary>False no preparo antes da 1ª rodada (ainda não existe cor-alvo).</summary>
+    public bool TemCorAlvo => rodada >= 1;
+
+    /// <summary>True depois que o jogador errou, até o TryAgain.</summary>
+    public bool FimDeJogo => fimDeJogo;
+
+    /// <summary>True enquanto o jogo "respira" antes de valer (contagem inicial).</summary>
+    public bool EmPreparo => emPreparo;
+
+    public float PreparoRestante =>
+        emPreparo ? Mathf.Max(0f, preparoFim - Time.time) : 0f;
+
+    /// <summary>1 = preparo acabou de começar, 0 = prestes a valer.</summary>
+    public float Preparo01 =>
+        preparoTotal > 0f ? Mathf.Clamp01(PreparoRestante / preparoTotal) : 0f;
+
+    /// <summary>Duração total da rodada atual, em segundos.</summary>
+    public float TempoDaRodada => tempoAtual;
+
+    public float TempoRestante =>
+        roundActive
+            ? Mathf.Max(0f, tempoAtual - (Time.time - inicioRodada))
+            : 0f;
+
+    /// <summary>1 = rodada acabou de começar, 0 = tempo esgotado.</summary>
+    public float Progresso01 =>
+        tempoAtual > 0f
+            ? Mathf.Clamp01(TempoRestante / tempoAtual)
+            : 0f;
+
+    // =========================================================
+    // UNITY
+    // =========================================================
 
     private void Awake()
     {
@@ -116,15 +207,7 @@ public class GameManager : MonoBehaviour
             }
         }
 
-        NovaRodada();
-    }
-
-    public void NovaRodada()
-    {
-        rodada++;
-        roundActive = true;
-
-        // Sorteia a cor que será procurada.
+        // Fundo neutro e fixo durante todo o jogo (a cor-alvo vive no HUD).
         if (Camera.main == null)
         {
             Debug.LogError(
@@ -133,11 +216,68 @@ public class GameManager : MonoBehaviour
         }
         else
         {
-            targetColor =
-                ColorUtils.RandomColorNoBlack(minBrightness);
-
-            Camera.main.backgroundColor = targetColor;
+            MudarFundo(corFundo, 0f);
         }
+
+        // Em vez de valer já no primeiro frame, o jogo começa com um preparo calmo.
+        IniciarPreparo(tempoPreparo);
+    }
+
+    // =========================================================
+    // PREPARO (contagem antes de valer)
+    // =========================================================
+
+    private void IniciarPreparo(float duracao)
+    {
+        if (preparoCoroutine != null)
+        {
+            StopCoroutine(preparoCoroutine);
+        }
+
+        preparoCoroutine = StartCoroutine(PreparoRoutine(duracao));
+    }
+
+    private IEnumerator PreparoRoutine(float duracao)
+    {
+        emPreparo = true;
+        fimDeJogo = false;
+        roundActive = false;
+        rodadaUid++;
+
+        preparoTotal = Mathf.Max(0.01f, duracao);
+        preparoFim = Time.time + preparoTotal;
+
+        // Tabuleiro neutro e fundo calmo: nenhuma cor aleatória até valer.
+        foreach (GridBlock block in blocks)
+        {
+            block.SetColor(corPadraoBlocos);
+        }
+
+        MudarFundo(corFundo, duracaoTransicaoFundo);
+
+        yield return new WaitForSeconds(preparoTotal);
+
+        emPreparo = false;
+        NovaRodada();
+    }
+
+    // =========================================================
+    // RODADA
+    // =========================================================
+
+    public void NovaRodada()
+    {
+        rodada++;
+        rodadaUid++;
+        fimDeJogo = false;
+        emPreparo = false;
+        roundActive = true;
+
+        // Sorteia a cor que será procurada.
+        targetColor =
+            ColorUtils.RandomColorNoBlack(minBrightness);
+
+        // A cor-alvo agora aparece no HUD (CorAlvo); o fundo permanece neutro.
 
         // Sorteia as cores dos blocos.
         foreach (GridBlock block in blocks)
@@ -150,18 +290,21 @@ public class GameManager : MonoBehaviour
         // Garante que exista pelo menos um bloco correto.
         int indiceCorreto = Random.Range(0, blocks.Count);
 
-        blocks[indiceCorreto].SetColor(targetColor);
+        blocoCorreto = blocks[indiceCorreto];
+        blocoCorreto.SetColor(targetColor);
 
         Debug.Log(
             $"Rodada {rodada} iniciada | " +
             $"Tempo: {tempoAtual:F2}s | " +
-            $"Bloco correto: {blocks[indiceCorreto].name}"
+            $"Bloco correto: {blocoCorreto.name}"
         );
 
         if (timerCoroutine != null)
         {
             StopCoroutine(timerCoroutine);
         }
+
+        inicioRodada = Time.time;
 
         timerCoroutine = StartCoroutine(TimerRodada());
     }
@@ -211,6 +354,53 @@ public class GameManager : MonoBehaviour
 
             yield return StartCoroutine(DerrotaRoutine());
         }
+    }
+
+    // =========================================================
+    // FUNDO (transição suave)
+    // =========================================================
+
+    private void MudarFundo(Color alvo, float duracao)
+    {
+        if (fundoCoroutine != null)
+        {
+            StopCoroutine(fundoCoroutine);
+            fundoCoroutine = null;
+        }
+
+        Camera cam = Camera.main;
+
+        if (cam == null)
+            return;
+
+        if (duracao <= 0.001f)
+        {
+            cam.backgroundColor = alvo;
+            return;
+        }
+
+        fundoCoroutine = StartCoroutine(TransicaoFundo(cam, alvo, duracao));
+    }
+
+    private IEnumerator TransicaoFundo(Camera cam, Color alvo, float duracao)
+    {
+        Color origem = cam.backgroundColor;
+        float t = 0f;
+
+        while (t < duracao)
+        {
+            t += Time.deltaTime;
+
+            cam.backgroundColor = Color.Lerp(
+                origem,
+                alvo,
+                Mathf.SmoothStep(0f, 1f, Mathf.Clamp01(t / duracao))
+            );
+
+            yield return null;
+        }
+
+        cam.backgroundColor = alvo;
     }
 
     // =========================================================
@@ -291,7 +481,7 @@ public class GameManager : MonoBehaviour
         if (block == null)
             return;
 
-        // Registra SEMPRE, mesmo fora de rodada (pausa pós-vitória, game over...).
+        // Registra SEMPRE, mesmo fora de rodada (preparo, pausa pós-vitória, game over...).
         // Quem avalia o resultado é o fim do timer, não esta função.
         if (!currentBlocks.Contains(block))
         {
@@ -328,7 +518,10 @@ public class GameManager : MonoBehaviour
     {
         roundActive = false;
 
-        yield return StartCoroutine(PiscarBlocos(Color.green));
+        // Um único pulso suave (sobe e desce), em vez de piscadas secas.
+        yield return StartCoroutine(
+            PulsoBlocos(corVitoria, duracaoPulsoVitoria, forcaPulsoVitoria)
+        );
 
         foreach (GridBlock block in blocks)
         {
@@ -348,6 +541,39 @@ public class GameManager : MonoBehaviour
         NovaRodada();
     }
 
+    /// <summary>
+    /// Mistura os blocos com uma cor e volta, em curva de seno (0 -> 1 -> 0).
+    /// Nunca chega na cor cheia (limitado por "forca") e nunca corta de uma vez.
+    /// </summary>
+    private IEnumerator PulsoBlocos(Color cor, float duracao, float forca)
+    {
+        if (duracao > 0.001f)
+        {
+            float t = 0f;
+
+            while (t < duracao)
+            {
+                t += Time.deltaTime;
+
+                float sino = Mathf.Sin(Mathf.Clamp01(t / duracao) * Mathf.PI);
+
+                foreach (GridBlock block in blocks)
+                {
+                    block.SetVisualColor(
+                        Color.Lerp(block.BlockColor, cor, forca * sino)
+                    );
+                }
+
+                yield return null;
+            }
+        }
+
+        foreach (GridBlock block in blocks)
+        {
+            block.SetVisualColor(block.BlockColor);
+        }
+    }
+
     // =========================================================
     // DERROTA
     // =========================================================
@@ -355,56 +581,46 @@ public class GameManager : MonoBehaviour
     private IEnumerator DerrotaRoutine()
     {
         roundActive = false;
+        fimDeJogo = true;
 
         onRoundLost?.Invoke();
-        onGameOver?.Invoke();
 
-        loopDerrotaCoroutine =
-            StartCoroutine(
-                PiscarBlocosInfinito(Color.red)
-            );
+        // Sem piscar: a tela "apaga" e mostra qual era o bloco certo.
+        derrotaCoroutine = StartCoroutine(RevelarDerrota());
 
         yield break;
     }
 
-    private IEnumerator PiscarBlocosInfinito(Color corFeedback)
+    private IEnumerator RevelarDerrota()
     {
-        while (true)
+        float duracao = Mathf.Max(0.01f, duracaoRevelacao);
+        float t = 0f;
+
+        while (t < duracao)
         {
-            foreach (GridBlock block in blocks)
-            {
-                block.SetVisualColor(corFeedback);
-            }
+            t += Time.deltaTime;
 
-            yield return new WaitForSeconds(intervaloPiscada);
+            float k = Mathf.SmoothStep(0f, 1f, Mathf.Clamp01(t / duracao));
 
             foreach (GridBlock block in blocks)
             {
-                block.SetVisualColor(block.BlockColor);
+                // O bloco certo mantém a cor verdadeira (igual à cor-alvo do HUD);
+                // todos os outros apagam suavemente.
+                if (block == blocoCorreto)
+                    continue;
+
+                block.SetVisualColor(
+                    Color.Lerp(block.BlockColor, corBlocosApagados, 0.75f * k)
+                );
             }
 
-            yield return new WaitForSeconds(intervaloPiscada);
+            yield return null;
         }
-    }
 
-    private IEnumerator PiscarBlocos(Color corFeedback)
-    {
-        for (int i = 0; i < quantidadePiscadas; i++)
-        {
-            foreach (GridBlock block in blocks)
-            {
-                block.SetVisualColor(corFeedback);
-            }
+        // Dá um tempo para o jogador entender o que aconteceu antes do painel.
+        yield return new WaitForSeconds(atrasoGameOver);
 
-            yield return new WaitForSeconds(intervaloPiscada);
-
-            foreach (GridBlock block in blocks)
-            {
-                block.SetVisualColor(block.BlockColor);
-            }
-
-            yield return new WaitForSeconds(intervaloPiscada);
-        }
+        onGameOver?.Invoke();
     }
 
     // =========================================================
@@ -413,10 +629,10 @@ public class GameManager : MonoBehaviour
 
     public void ReiniciarJogo()
     {
-        if (loopDerrotaCoroutine != null)
+        if (derrotaCoroutine != null)
         {
-            StopCoroutine(loopDerrotaCoroutine);
-            loopDerrotaCoroutine = null;
+            StopCoroutine(derrotaCoroutine);
+            derrotaCoroutine = null;
         }
 
         if (timerCoroutine != null)
@@ -432,7 +648,8 @@ public class GameManager : MonoBehaviour
         tempoAtual = tempoInicial;
         rodada = 0;
         roundActive = false;
+        blocoCorreto = null;
 
-        NovaRodada();
+        IniciarPreparo(tempoPreparoRetry);
     }
 }
