@@ -414,16 +414,28 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::GameManager
   blocksParent: {fileID: 1624694974}
-  minBrightness: 0.351
+  saturacaoMinima: 0.65
+  brilhoMinimo: 0.85
+  distanciaMinInicial: 0.3
+  distanciaMinFinal: 0.12
+  rodadasAteDistanciaFinal: 12
   playerTransform: {fileID: 0}
   alturaRaio: 1
   tempoInicial: 10
   tempoMinimo: 3
   reducaoPorRodada: 0.567
+  tempoPreparo: 3
+  tempoPreparoRetry: 1.5
+  corFundo: {r: 0.1, g: 0.1, b: 0.12, a: 1}
+  duracaoTransicaoFundo: 0.25
   corPadraoBlocos: {r: 1, g: 1, b: 1, a: 1}
-  quantidadePiscadas: 3
-  intervaloPiscada: 0.3
+  corVitoria: {r: 0.24, g: 0.86, b: 0.52, a: 1}
+  duracaoPulsoVitoria: 0.5
+  forcaPulsoVitoria: 0.55
   pausaAposVitoria: 0.5
+  corBlocosApagados: {r: 0.25, g: 0.25, b: 0.3, a: 1}
+  duracaoRevelacao: 0.6
+  atrasoGameOver: 0.9
   onRoundWon:
     m_PersistentCalls:
       m_Calls:
@@ -835,7 +847,7 @@ MonoBehaviour:
     m_Bits: 1
   m_VolumeTrigger: {fileID: 0}
   m_VolumeFrameworkUpdateModeOption: 2
-  m_RenderPostProcessing: 1
+  m_RenderPostProcessing: 0
   m_Antialiasing: 0
   m_AntialiasingQuality: 2
   m_StopNaN: 0
@@ -1991,20 +2003,29 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::GameHUD
   textoRodada: ROUND
-  textoTempo: TIME
-  textoDica: STAND ON THE COLOR OF THE BACKGROUND!
+  textoPreparo: GET READY
+  textoAlvo: TARGET
+  textoRegra: STAND ON THE TILE THAT MATCHES THE TARGET!
   textoControles: 'MOVE: WASD / ARROWS'
+  textoDerrota: TIME'S UP!
+  textoDerrotaExplicacao: THE TILE THAT KEPT ITS COLOR WAS THE ANSWER
   rodadasComDica: 3
   margemDica: 30
-  font: {fileID: 0}
+  duracaoFadeIn: 0.8
+  font: {fileID: 11400000, guid: 45a9d96e27149a2459637c969df74209, type: 2}
   sortingOrder: 5
+  larguraContorno: 0.18
+  pulsarNaBatida: 1
   corBorda: {r: 0.43, g: 0.25, b: 1, a: 1}
   corPainel: {r: 0.12, g: 0.08, b: 0.22, a: 0.95}
-  corPainelSombra: {r: 0.07, g: 0.04, b: 0.14, a: 1}
   corTrilho: {r: 0.04, g: 0.02, b: 0.09, a: 1}
+  corContorno: {r: 0.05, g: 0.02, b: 0.12, a: 1}
   corVerde: {r: 0.24, g: 0.86, b: 0.52, a: 1}
+  corPreparo: {r: 0.62, g: 0.42, b: 1, a: 1}
   corPerigo: {r: 0.95, g: 0.25, b: 0.25, a: 1}
   corTextoSuave: {r: 1, g: 1, b: 1, a: 0.7}
+  corAlvoVazia: {r: 0.16, g: 0.13, b: 0.24, a: 1}
+  corMolduraAlvo: {r: 0.96, g: 0.96, b: 1, a: 1}
 --- !u!1 &845658123
 GameObject:
   m_ObjectHideFlags: 0
@@ -2676,7 +2697,6 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::GameOverUI
   painelGameOver: {fileID: 1427552878}
   nomeCenaMenu: MainMenu
-  blur: {fileID: 0}
 --- !u!1 &1132744223
 GameObject:
   m_ObjectHideFlags: 0

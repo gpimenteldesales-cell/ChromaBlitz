@@ -1,30 +1,29 @@
 using System.Collections;
+using System.Collections.Generic;
 using System.Globalization;
 using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
 
 /// <summary>
-/// HUD do Chroma Blitz, montado por código (sem prefab): basta colocar este script
-/// em um GameObject vazio da cena do jogo (ex.: "HUD").
+/// HUD do Chroma Blitz, montado por código (sem prefab nem imagens): basta colocar
+/// este script em um GameObject vazio da cena do jogo (ex.: "HUD").
 ///
-/// Mostra:
-/// - Painel RODADA (topo esquerdo), com um "pop" leve a cada rodada nova.
-/// - Painel TEMPO (topo centro): barra + segundos. Durante o preparo vira
-///   "GET READY" com contagem 3-2-1 em roxo (calmo), e depois vira a barra verde.
-/// - Painel ALVO (topo direito): a COR-ALVO que o jogador precisa encontrar.
-///   Ela NÃO é mais o fundo do jogo: o fundo agora é neutro e fixo.
-/// - Mensagem embaixo: a regra do jogo e os controles (no preparo e nas primeiras
-///   rodadas) ou, na derrota, a explicação de qual bloco era o certo.
-/// - Entrada suave: a cena sai do preto e o HUD aparece em fade (sem estouro).
+/// Layout (hierarquia):
+/// - CENTRO, topo: painel principal com a COR-ALVO grande (protagonista) e, logo abaixo,
+///   a barra de tempo com os segundos. No preparo vira "GET READY" + contagem.
+/// - ESQUERDA, topo: painel pequeno com o número da rodada.
+/// - DIREITA, topo: livre (reservado para pontuação).
+/// - EMBAIXO: dica curta (regra + controles) ou, na derrota, a explicação do bloco certo.
 ///
-/// Os painéis são escuros e opacos DE PROPÓSITO, para ficarem legíveis sempre.
+/// Visual: painéis arredondados com sombra e brilho (sprites gerados por código),
+/// textos com contorno. Funciona sem fonte extra; para o visual final, arraste uma
+/// fonte grossa e arredondada (TMP Font Asset) no campo "Font".
 /// </summary>
 public class GameHUD : MonoBehaviour
 {
     [Header("Textos (troque para português se quiser)")]
     public string textoRodada = "ROUND";
-    public string textoTempo = "TIME";
     public string textoPreparo = "GET READY";
     public string textoAlvo = "TARGET";
     public string textoRegra = "STAND ON THE TILE THAT MATCHES THE TARGET!";
@@ -35,7 +34,7 @@ public class GameHUD : MonoBehaviour
     [Header("Dica de início")]
     [Tooltip("A dica fica visível durante o preparo e nas primeiras N rodadas.")]
     public int rodadasComDica = 3;
-    [Tooltip("Distância da mensagem até a borda de baixo da tela (pixels, base 1920x1080).")]
+    [Tooltip("Distância da dica até a borda de baixo da tela (pixels, base 1920x1080).")]
     public float margemDica = 30f;
 
     [Header("Entrada suave")]
@@ -43,35 +42,42 @@ public class GameHUD : MonoBehaviour
     public float duracaoFadeIn = 0.8f;
 
     [Header("Visual")]
-    [Tooltip("Opcional: fonte pixel (TMP Font Asset). Vazio = fonte padrão do TMP.")]
+    [Tooltip("Recomendado: fonte grossa e arredondada (TMP Font Asset). Vazio = fonte padrão do TMP em negrito.")]
     public TMP_FontAsset font;
     [Tooltip("Ordem do Canvas. Aumente se o HUD ficar atrás de outro painel.")]
     public int sortingOrder = 5;
+    [Tooltip("Espessura do contorno dos textos (0 = sem contorno).")]
+    [Range(0f, 0.5f)] public float larguraContorno = 0.10f;
+    [Tooltip("O brilho em volta da cor-alvo pulsa de leve na batida da música.")]
+    public bool pulsarNaBatida = true;
 
-    [Header("Paleta (a mesma do menu)")]
-    public Color corBorda = new Color(0.43f, 0.25f, 1.00f);            // roxo dos botões
-    public Color corPainel = new Color(0.12f, 0.08f, 0.22f, 0.95f);     // miolo escuro dos botões
-    public Color corPainelSombra = new Color(0.07f, 0.04f, 0.14f, 1f);  // linha interna
+    [Header("Paleta")]
+    public Color corBorda = new Color(0.43f, 0.25f, 1.00f);             // roxo do menu
+    public Color corPainel = new Color(0.12f, 0.08f, 0.22f, 0.94f);     // miolo escuro
     public Color corTrilho = new Color(0.04f, 0.02f, 0.09f, 1f);
+    public Color corContorno = new Color(0.05f, 0.02f, 0.12f, 1f);
     public Color corVerde = new Color(0.24f, 0.86f, 0.52f);             // highlight do menu
+    public Color corPreparo = new Color(0.62f, 0.42f, 1.00f);           // barra do "get ready"
     public Color corPerigo = new Color(0.95f, 0.25f, 0.25f);            // vermelho do cubo/derrota
-    public Color corTextoSuave = new Color(1f, 1f, 1f, 0.7f);
+    public Color corTextoSuave = new Color(1f, 1f, 1f, 0.75f);
 
     [Header("Painel da cor-alvo")]
     [Tooltip("Cor do quadro enquanto ainda não existe cor-alvo (preparo).")]
-    public Color corAlvoVazia = new Color(0.14f, 0.12f, 0.20f);
+    public Color corAlvoVazia = new Color(0.16f, 0.13f, 0.24f);
     [Tooltip("Moldura clara em volta da cor-alvo, para ela se destacar do painel escuro.")]
-    public Color corMolduraAlvo = new Color(0.92f, 0.92f, 0.96f);
+    public Color corMolduraAlvo = new Color(0.96f, 0.96f, 1.00f);
 
     // --- runtime ---
     TextMeshProUGUI txtRodada;
-    TextMeshProUGUI lblTempo;
+    TextMeshProUGUI lblAlvo;
     TextMeshProUGUI txtTempo;
+    TextMeshProUGUI txtInterrogacao;
     TextMeshProUGUI txtDica;
     TextMeshProUGUI txtControles;
     RectTransform barraFill;
     Image barraFillImg;
     Image quadroAlvo;
+    Image glowAlvo;
     RectTransform molduraAlvoRt;
     CanvasGroup grupoRaiz;
     CanvasGroup grupoDica;
@@ -83,6 +89,8 @@ public class GameHUD : MonoBehaviour
     Color corAlvoAtual;
     Coroutine popRodadaCo;
     Coroutine popAlvoCo;
+
+    static readonly Dictionary<int, Sprite> cacheSprites = new Dictionary<int, Sprite>();
 
     void Awake()
     {
@@ -101,15 +109,15 @@ public class GameHUD : MonoBehaviour
         if (gm.RodadaUid != ultimoUid)
         {
             ultimoUid = gm.RodadaUid;
-            SetText(txtRodada, gm.Rodada.ToString("00"));
+            SetText(txtRodada, gm.TemCorAlvo ? gm.Rodada.ToString("00") : "--");
 
             if (popRodadaCo != null) StopCoroutine(popRodadaCo);
-            popRodadaCo = StartCoroutine(Pop(txtRodada.rectTransform));
+            popRodadaCo = StartCoroutine(Pop(txtRodada.rectTransform, 0.12f));
 
             if (gm.TemCorAlvo)
             {
                 if (popAlvoCo != null) StopCoroutine(popAlvoCo);
-                popAlvoCo = StartCoroutine(Pop(molduraAlvoRt));
+                popAlvoCo = StartCoroutine(Pop(molduraAlvoRt, 0.06f));
             }
         }
 
@@ -146,9 +154,9 @@ public class GameHUD : MonoBehaviour
             float pp = Mathf.Clamp01(gm.Preparo01);
             barraFill.anchorMax = new Vector2(pp, 1f);
             barraFillImg.enabled = pp > 0.003f;
-            barraFillImg.color = corBorda;
+            barraFillImg.color = corPreparo;
 
-            SetText(lblTempo, textoPreparo);
+            SetText(lblAlvo, textoPreparo);
             SetText(txtTempo, Mathf.CeilToInt(gm.PreparoRestante).ToString());
             return;
         }
@@ -159,7 +167,7 @@ public class GameHUD : MonoBehaviour
         barraFillImg.enabled = p > 0.003f;
         barraFillImg.color = Color.Lerp(corPerigo, corVerde, Mathf.InverseLerp(0.15f, 0.45f, p));
 
-        SetText(lblTempo, textoTempo);
+        SetText(lblAlvo, textoAlvo);
         SetText(txtTempo, gm.TempoRestante.ToString("0.0", CultureInfo.InvariantCulture) + "s");
     }
 
@@ -173,6 +181,18 @@ public class GameHUD : MonoBehaviour
         float suavizar = 1f - Mathf.Exp(-25f * Time.unscaledDeltaTime);
         corAlvoAtual = Color.Lerp(corAlvoAtual, alvo, suavizar);
         quadroAlvo.color = corAlvoAtual;
+
+        txtInterrogacao.gameObject.SetActive(!gm.TemCorAlvo);
+
+        // Brilho em volta da cor-alvo; pulsa de leve na batida (nada de piscar forte).
+        float pulso = 0f;
+        var am = AudioManager.Instance;
+        if (pulsarNaBatida && gm.TemCorAlvo && am != null && am.IsPlaying)
+            pulso = 1f - am.BeatProgress;
+
+        Color g = corAlvoAtual;
+        g.a = gm.TemCorAlvo ? 0.30f + 0.25f * pulso : 0f;
+        glowAlvo.color = g;
     }
 
     void AtualizarMensagem(GameManager gm)
@@ -206,7 +226,7 @@ public class GameHUD : MonoBehaviour
         if (t.text != s) t.text = s;
     }
 
-    IEnumerator Pop(RectTransform rt)
+    IEnumerator Pop(RectTransform rt, float forca)
     {
         const float duracao = 0.25f;
         float t = 0f;
@@ -215,7 +235,7 @@ public class GameHUD : MonoBehaviour
         {
             t += Time.unscaledDeltaTime;
             float k = 1f - Mathf.Clamp01(t / duracao);
-            rt.localScale = Vector3.one * (1f + 0.12f * k * k);   // leve, só para chamar atenção sem assustar
+            rt.localScale = Vector3.one * (1f + forca * k * k);   // leve, só para chamar atenção sem assustar
             yield return null;
         }
 
@@ -250,45 +270,58 @@ public class GameHUD : MonoBehaviour
         var root = (RectTransform)canvasGo.transform;
         RectTransform conteudo;
 
-        // ---------- Painel RODADA (topo esquerdo)
+        // ---------- RODADA (topo esquerdo): pequeno, só informação
         MakePanel(root, "PainelRodada",
             new Vector2(0f, 1f), new Vector2(0f, 1f),
-            new Vector2(40f, -40f), new Vector2(300f, 100f),
+            new Vector2(40f, -40f), new Vector2(250f, 104f), 28,
             out conteudo);
 
-        var lblRodada = MakeText(conteudo, "Label", textoRodada, 26f, corTextoSuave, TextAlignmentOptions.MidlineLeft);
+        var lblRodada = MakeText(conteudo, "Label", textoRodada, 24f, corTextoSuave, TextAlignmentOptions.MidlineLeft);
         Place(lblRodada.rectTransform,
-            new Vector2(0f, 0.58f), Vector2.one,
-            new Vector2(18f, 0f), new Vector2(-10f, -6f));
+            new Vector2(0f, 0.62f), Vector2.one,
+            new Vector2(24f, 0f), new Vector2(-16f, -6f));
 
-        txtRodada = MakeText(conteudo, "Valor", "00", 56f, Color.white, TextAlignmentOptions.MidlineLeft);
+        txtRodada = MakeText(conteudo, "Valor", "--", 56f, Color.white, TextAlignmentOptions.MidlineLeft);
         Place(txtRodada.rectTransform,
-            Vector2.zero, new Vector2(1f, 0.62f),
-            new Vector2(18f, 6f), new Vector2(-10f, 0f),
+            Vector2.zero, new Vector2(1f, 0.66f),
+            new Vector2(24f, 6f), new Vector2(-16f, 0f),
             new Vector2(0f, 0.5f));   // pivô à esquerda: o "pop" cresce para a direita
 
-        // ---------- Painel TEMPO (topo centro)
-        MakePanel(root, "PainelTempo",
+        // ---------- ALVO + TEMPO (topo centro): o protagonista
+        MakePanel(root, "PainelAlvo",
             new Vector2(0.5f, 1f), new Vector2(0.5f, 1f),
-            new Vector2(0f, -40f), new Vector2(760f, 100f),
+            new Vector2(0f, -30f), new Vector2(540f, 206f), 36,
             out conteudo);
 
-        lblTempo = MakeText(conteudo, "Label", textoTempo, 26f, corTextoSuave, TextAlignmentOptions.MidlineLeft);
-        Place(lblTempo.rectTransform,
-            new Vector2(0f, 0.55f), Vector2.one,
-            new Vector2(18f, 0f), new Vector2(-18f, -6f));
+        // Brilho atrás da cor-alvo (criado primeiro para ficar por baixo de tudo).
+        glowAlvo = MakeRounded(conteudo, "Glow", new Color(1f, 1f, 1f, 0f), 30);
+        Place(glowAlvo.rectTransform,
+            new Vector2(0f, 0.30f), new Vector2(1f, 0.76f),
+            new Vector2(18f, -6f), new Vector2(-18f, 6f));
 
-        txtTempo = MakeText(conteudo, "Segundos", "0.0s", 30f, Color.white, TextAlignmentOptions.MidlineRight);
-        Place(txtTempo.rectTransform,
-            new Vector2(0f, 0.55f), Vector2.one,
-            new Vector2(18f, 0f), new Vector2(-18f, -6f));
+        Image moldura = MakeRounded(conteudo, "Moldura", corMolduraAlvo, 24);
+        Place(moldura.rectTransform,
+            new Vector2(0f, 0.30f), new Vector2(1f, 0.76f),
+            new Vector2(24f, 0f), new Vector2(-24f, 0f));
+        molduraAlvoRt = moldura.rectTransform;
 
-        Image trilho = MakeImage(conteudo, "Trilho", corTrilho);
+        quadroAlvo = MakeRounded(moldura.rectTransform, "CorAlvo", corAlvoVazia, 20);
+        Inset(quadroAlvo.rectTransform, 5f);
+
+        txtInterrogacao = MakeText(moldura.rectTransform, "Interrogacao", "?", 64f, corTextoSuave, TextAlignmentOptions.Center);
+        Inset(txtInterrogacao.rectTransform, 0f);
+
+        lblAlvo = MakeText(conteudo, "Label", textoAlvo, 28f, corTextoSuave, TextAlignmentOptions.Center);
+        Place(lblAlvo.rectTransform,
+            new Vector2(0f, 0.78f), Vector2.one,
+            new Vector2(20f, 0f), new Vector2(-20f, -6f));
+
+        Image trilho = MakeRounded(conteudo, "Trilho", corTrilho, 16);
         Place(trilho.rectTransform,
-            Vector2.zero, new Vector2(1f, 0.5f),
-            new Vector2(18f, 12f), new Vector2(-18f, -2f));
+            new Vector2(0f, 0.06f), new Vector2(1f, 0.26f),
+            new Vector2(24f, 0f), new Vector2(-24f, 0f));
 
-        Image fill = MakeImage(trilho.rectTransform, "Fill", corVerde);
+        Image fill = MakeRounded(trilho.rectTransform, "Fill", corVerde, 13);
         Place(fill.rectTransform,
             Vector2.zero, Vector2.one,
             new Vector2(3f, 3f), new Vector2(-3f, -3f));
@@ -296,33 +329,13 @@ public class GameHUD : MonoBehaviour
         barraFill = fill.rectTransform;
         barraFillImg = fill;
 
-        // ---------- Painel ALVO (topo direito): a cor que o jogador precisa encontrar
-        MakePanel(root, "PainelAlvo",
-            new Vector2(1f, 1f), new Vector2(1f, 1f),
-            new Vector2(-40f, -40f), new Vector2(380f, 100f),
-            out conteudo);
+        txtTempo = MakeText(trilho.rectTransform, "Tempo", "0.0s", 28f, Color.white, TextAlignmentOptions.Center);
+        Inset(txtTempo.rectTransform, 0f);
 
-        var lblAlvo = MakeText(conteudo, "Label", textoAlvo, 26f, corTextoSuave, TextAlignmentOptions.MidlineLeft);
-        Place(lblAlvo.rectTransform,
-            new Vector2(0f, 0.55f), Vector2.one,
-            new Vector2(18f, 0f), new Vector2(-18f, -6f));
-
-        Image moldura = MakeImage(conteudo, "Moldura", corMolduraAlvo);
-        Place(moldura.rectTransform,
-            Vector2.zero, new Vector2(1f, 0.5f),
-            new Vector2(18f, 12f), new Vector2(-18f, -2f));
-
-        quadroAlvo = MakeImage(moldura.rectTransform, "CorAlvo", corAlvoVazia);
-        Place(quadroAlvo.rectTransform,
-            Vector2.zero, Vector2.one,
-            new Vector2(3f, 3f), new Vector2(-3f, -3f));
-
-        molduraAlvoRt = moldura.rectTransform;
-
-        // ---------- Mensagem (embaixo, centro): regra do jogo ou explicação da derrota
+        // ---------- DICA (embaixo, centro): regra curta ou explicação da derrota
         RectTransform raizDica = MakePanel(root, "PainelDica",
             new Vector2(0.5f, 0f), new Vector2(0.5f, 0f),
-            new Vector2(0f, margemDica), new Vector2(1280f, 120f),
+            new Vector2(0f, margemDica), new Vector2(1000f, 96f), 28,
             out conteudo);
 
         grupoDica = raizDica.gameObject.AddComponent<CanvasGroup>();
@@ -330,15 +343,15 @@ public class GameHUD : MonoBehaviour
         grupoDica.interactable = false;
         grupoDica.blocksRaycasts = false;
 
-        txtDica = MakeText(conteudo, "Dica", textoRegra, 40f, Color.white, TextAlignmentOptions.Center);
+        txtDica = MakeText(conteudo, "Dica", textoRegra, 34f, Color.white, TextAlignmentOptions.Center);
         Place(txtDica.rectTransform,
-            new Vector2(0f, 0.45f), Vector2.one,
-            new Vector2(20f, 0f), new Vector2(-20f, -8f));
+            new Vector2(0f, 0.46f), Vector2.one,
+            new Vector2(24f, 0f), new Vector2(-24f, -6f));
 
-        txtControles = MakeText(conteudo, "Controles", textoControles, 28f, corVerde, TextAlignmentOptions.Center);
+        txtControles = MakeText(conteudo, "Controles", textoControles, 26f, corVerde, TextAlignmentOptions.Center);
         Place(txtControles.rectTransform,
-            Vector2.zero, new Vector2(1f, 0.45f),
-            new Vector2(20f, 10f), new Vector2(-20f, 0f));
+            Vector2.zero, new Vector2(1f, 0.46f),
+            new Vector2(24f, 8f), new Vector2(-24f, 0f));
 
         // ---------- Fade preto de entrada (Canvas separado, por cima de tudo)
         var fadeGo = new GameObject("HUDFade", typeof(RectTransform));
@@ -353,26 +366,32 @@ public class GameHUD : MonoBehaviour
     }
 
     /// <summary>
-    /// Painel no estilo dos botões do menu: borda roxa, linha interna escura e miolo.
-    /// Retorna a raiz (borda); "conteudo" é o miolo, onde vão os filhos.
+    /// Painel arredondado: sombra, borda e miolo escuro.
+    /// Retorna a raiz; "conteudo" é o miolo, onde vão os filhos.
     /// </summary>
     RectTransform MakePanel(RectTransform parent, string nome,
-        Vector2 anchor, Vector2 pivot, Vector2 pos, Vector2 size,
+        Vector2 anchor, Vector2 pivot, Vector2 pos, Vector2 size, int raio,
         out RectTransform conteudo)
     {
-        Image borda = MakeImage(parent, nome, corBorda);
-        RectTransform rt = borda.rectTransform;
+        var go = new GameObject(nome, typeof(RectTransform));
+        var rt = (RectTransform)go.transform;
+        rt.SetParent(parent, false);
         rt.anchorMin = anchor;
         rt.anchorMax = anchor;
         rt.pivot = pivot;
         rt.anchoredPosition = pos;
         rt.sizeDelta = size;
 
-        Image sombra = MakeImage(rt, "Sombra", corPainelSombra);
-        Inset(sombra.rectTransform, 4f);
+        // Sombra projetada (um pouco para baixo)
+        Image sombra = MakeRounded(rt, "Sombra", new Color(0f, 0f, 0f, 0.38f), raio);
+        Place(sombra.rectTransform, Vector2.zero, Vector2.one,
+            new Vector2(4f, -10f), new Vector2(-4f, -10f));
 
-        Image fundo = MakeImage(sombra.rectTransform, "Fundo", corPainel);
-        Inset(fundo.rectTransform, 3f);
+        Image borda = MakeRounded(rt, "Borda", corBorda, raio);
+        Inset(borda.rectTransform, 0f);
+
+        Image fundo = MakeRounded(borda.rectTransform, "Fundo", corPainel, Mathf.Max(4, raio - 4));
+        Inset(fundo.rectTransform, 4f);
 
         conteudo = fundo.rectTransform;
         return rt;
@@ -390,6 +409,14 @@ public class GameHUD : MonoBehaviour
         return img;
     }
 
+    Image MakeRounded(RectTransform parent, string nome, Color cor, int raio)
+    {
+        Image img = MakeImage(parent, nome, cor);
+        img.sprite = RoundedSprite(raio);
+        img.type = Image.Type.Sliced;
+        return img;
+    }
+
     TextMeshProUGUI MakeText(RectTransform parent, string nome, string texto,
         float tamanho, Color cor, TextAlignmentOptions alinhamento)
     {
@@ -404,16 +431,68 @@ public class GameHUD : MonoBehaviour
         t.overflowMode = TextOverflowModes.Overflow;
         t.raycastTarget = false;
 
-        // Auto-ajuste: o texto sempre cabe na caixa, mesmo com fontes pixel largas.
+        // Auto-ajuste: o texto sempre cabe na caixa, mesmo com fontes largas.
         t.enableAutoSizing = true;
         t.fontSizeMax = tamanho;
         t.fontSizeMin = tamanho * 0.4f;
         t.fontSize = tamanho;
 
         if (font) t.font = font;
-        else t.fontStyle = FontStyles.Bold;   // fonte pixel não tem negrito de verdade
+        else t.fontStyle = FontStyles.Bold;
+
+        // Contorno escuro: dá leitura sobre qualquer fundo e o aspecto "de jogo".
+        if (larguraContorno > 0f)
+        {
+            t.outlineWidth = larguraContorno;
+            t.outlineColor = corContorno;
+        }
 
         return t;
+    }
+
+    /// <summary>
+    /// Retângulo arredondado branco (para tingir com Image.color), em 9-slice,
+    /// gerado por código. Fica em cache por raio.
+    /// </summary>
+    static Sprite RoundedSprite(int raio)
+    {
+        if (cacheSprites.TryGetValue(raio, out Sprite existente) && existente != null)
+            return existente;
+
+        int size = raio * 2 + 2;   // sobra uma faixa central que estica no 9-slice
+        var tex = new Texture2D(size, size, TextureFormat.RGBA32, false);
+        tex.wrapMode = TextureWrapMode.Clamp;
+        tex.filterMode = FilterMode.Bilinear;
+
+        var px = new Color32[size * size];
+        for (int y = 0; y < size; y++)
+        {
+            for (int x = 0; x < size; x++)
+            {
+                float fx = x + 0.5f;
+                float fy = y + 0.5f;
+                float cx = Mathf.Clamp(fx, raio, size - raio);
+                float cy = Mathf.Clamp(fy, raio, size - raio);
+                float d = Vector2.Distance(new Vector2(fx, fy), new Vector2(cx, cy));
+                float a = Mathf.Clamp01(raio - d + 0.5f);   // borda suavizada
+                px[y * size + x] = new Color32(255, 255, 255, (byte)Mathf.RoundToInt(a * 255f));
+            }
+        }
+
+        tex.SetPixels32(px);
+        tex.Apply();
+
+        Sprite sp = Sprite.Create(
+            tex,
+            new Rect(0, 0, size, size),
+            new Vector2(0.5f, 0.5f),
+            100f,
+            0,
+            SpriteMeshType.FullRect,
+            new Vector4(raio, raio, raio, raio));
+
+        cacheSprites[raio] = sp;
+        return sp;
     }
 
     static void Place(RectTransform rt, Vector2 anchorMin, Vector2 anchorMax,

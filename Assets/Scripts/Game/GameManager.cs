@@ -11,9 +11,25 @@ public class GameManager : MonoBehaviour
     [Tooltip("Objeto pai que contém todos os blocos da fase")]
     public Transform blocksParent;
 
-    [Tooltip("Brilho mínimo das cores sorteadas")]
+    [Header("Cores (legibilidade)")]
+    [Tooltip("Saturação mínima das cores do tabuleiro. Mais alto = cores mais vivas, nada acinzentado.")]
     [Range(0f, 1f)]
-    public float minBrightness = 0.3f;
+    public float saturacaoMinima = 0.65f;
+
+    [Tooltip("Brilho mínimo das cores do tabuleiro.")]
+    [Range(0f, 1f)]
+    public float brilhoMinimo = 0.85f;
+
+    [Tooltip("Distância mínima entre a cor-alvo e os blocos ERRADOS na 1ª rodada (0 a 1). Mais alto = mais fácil.")]
+    [Range(0f, 1f)]
+    public float distanciaMinInicial = 0.30f;
+
+    [Tooltip("Distância mínima nas rodadas avançadas. Deixe igual à inicial para a dificuldade vir só do tempo.")]
+    [Range(0f, 1f)]
+    public float distanciaMinFinal = 0.12f;
+
+    [Tooltip("Em quantas rodadas a distância vai da inicial até a final.")]
+    public int rodadasAteDistanciaFinal = 12;
 
     [Header("Detecção do player")]
     [Tooltip("Player usado para descobrir em que bloco ele está. Se vazio, procura pela tag Player.")]
@@ -273,17 +289,25 @@ public class GameManager : MonoBehaviour
         emPreparo = false;
         roundActive = true;
 
-        // Sorteia a cor que será procurada.
+        // Sorteia a cor que será procurada (sempre viva e saturada).
         targetColor =
-            ColorUtils.RandomColorNoBlack(minBrightness);
+            ColorUtils.RandomVibrant(saturacaoMinima, brilhoMinimo);
 
-        // A cor-alvo agora aparece no HUD (CorAlvo); o fundo permanece neutro.
+        // A cor-alvo aparece no HUD (CorAlvo); o fundo permanece neutro.
 
-        // Sorteia as cores dos blocos.
+        // Sorteia as cores dos blocos errados: vivas e sempre distintas da cor-alvo,
+        // para ninguém perder por causa de dois tons quase iguais.
+        float distanciaMin = DistanciaMinimaDaRodada();
+
         foreach (GridBlock block in blocks)
         {
             block.SetColor(
-                ColorUtils.RandomColorNoBlack(minBrightness)
+                ColorUtils.RandomVibrantAwayFrom(
+                    targetColor,
+                    distanciaMin,
+                    saturacaoMinima,
+                    brilhoMinimo
+                )
             );
         }
 
@@ -296,6 +320,7 @@ public class GameManager : MonoBehaviour
         Debug.Log(
             $"Rodada {rodada} iniciada | " +
             $"Tempo: {tempoAtual:F2}s | " +
+            $"Distância mínima de cor: {distanciaMin:F2} | " +
             $"Bloco correto: {blocoCorreto.name}"
         );
 
@@ -307,6 +332,19 @@ public class GameManager : MonoBehaviour
         inicioRodada = Time.time;
 
         timerCoroutine = StartCoroutine(TimerRodada());
+    }
+
+    /// <summary>
+    /// Quão diferente os blocos errados precisam ser da cor-alvo nesta rodada.
+    /// Começa fácil (cores bem distintas) e vai apertando até distanciaMinFinal.
+    /// </summary>
+    private float DistanciaMinimaDaRodada()
+    {
+        float t = Mathf.Clamp01(
+            (rodada - 1) / (float)Mathf.Max(1, rodadasAteDistanciaFinal)
+        );
+
+        return Mathf.Lerp(distanciaMinInicial, distanciaMinFinal, t);
     }
 
     private IEnumerator TimerRodada()

@@ -9,9 +9,6 @@ public class GameOverUI : MonoBehaviour
     [Tooltip("Nome exato da cena do menu")]
     public string nomeCenaMenu = "Menu";
 
-    [Tooltip("ScreenBlurController da cena")]
-    public ScreenBlurController blur;
-
     private void Awake()
     {
         if (painelGameOver != null)
@@ -23,17 +20,12 @@ public class GameOverUI : MonoBehaviour
         if (painelGameOver != null)
             painelGameOver.SetActive(true);
 
-        if (blur != null)
-            blur.AtivarBlur();
     }
 
     public void TryAgain()
     {
         if (painelGameOver != null)
             painelGameOver.SetActive(false);
-
-        if (blur != null)
-            blur.DesativarBlur();
 
         if (GameManager.Instance != null)
             GameManager.Instance.ReiniciarJogo();
