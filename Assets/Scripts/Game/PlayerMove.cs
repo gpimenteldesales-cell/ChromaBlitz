@@ -27,8 +27,8 @@ public class PlayerMove : MonoBehaviour
     void Update()
     {
         // Lê o input em Update (mais responsivo), aplica o movimento em FixedUpdate
-        float h = Input.GetAxisRaw("Horizontal"); // A/D ou setas
-        float v = Input.GetAxisRaw("Vertical");   // W/S ou setas
+        float h = Input.GetAxis("Horizontal"); // A/D ou setas
+        float v = Input.GetAxis("Vertical");   // W/S ou setas
 
         Vector3 inputBruto = new Vector3(h, 0f, v);
         if (inputBruto.sqrMagnitude > 1f)
